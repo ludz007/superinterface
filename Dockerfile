@@ -1,59 +1,43 @@
 ############################################
-# Stage 1: Builder – install dependencies & build all packages
+# Stage 1: Builder — install & build only the Next.js example
 ############################################
 FROM node:18-alpine AS builder
 
-# 1) Set the working directory to the repo root
-WORKDIR /app
+# 1) Set working directory to the Next.js example folder
+WORKDIR /app/examples/next
 
-# 2) Copy only the files needed to install dependencies
-COPY package.json package-lock.json turbo.json ./
+# 2) Copy only the Next.js example’s package files
+COPY examples/next/package.json examples/next/package-lock.json ./
 
-# 3) Install all dependencies (including devDependencies)
+# 3) Install dependencies for the example
 RUN npm install
 
-# 4) FIX: Add the local node_modules binaries to the PATH
-# This ensures that commands like 'tsup' are found by the shell.
-ENV PATH /app/node_modules/.bin:$PATH
+# 4) Copy the rest of the example’s source code
+COPY examples/next ./
 
-# 5) Copy the rest of the repo to /app
-COPY . .
-
-# 6) Run the “build” script from the root (Turbo will build every workspace)
-# Now it will be able to find and execute 'tsup'
+# 5) Build the Next.js example (generates .next/)
 RUN npm run build
-
-# 7) Prune devDependencies after the build is complete.
-RUN npm prune --production
 
 
 ############################################
-# Stage 2: Runner – copy only the production output & start Next.js
+# Stage 2: Runner — copy production output & start Next.js
 ############################################
 FROM node:18-alpine AS runner
 
 # 1) Create a fresh working directory
-WORKDIR /app
+WORKDIR /app/examples/next
 
-# 2) Ensure we’re in production mode
+# 2) Copy over the built .next folder and production node_modules from the builder stage
+COPY --from=builder /app/examples/next/.next ./.next
+COPY --from=builder /app/examples/next/node_modules ./node_modules
+COPY --from=builder /app/examples/next/public ./public
+COPY --from=builder /app/examples/next/package.json ./package.json
+
+# 3) Set NODE_ENV=production so Next.js serves in production mode
 ENV NODE_ENV=production
 
-# 3) Copy the pruned, production-only node_modules from the builder stage.
-COPY --from=builder /app/node_modules ./node_modules
-
-# 4) Copy the root package.json
-COPY --from=builder /app/package.json ./package.json
-
-# 5) Copy only what’s needed for the Next.js app from the builder:
-COPY --from=builder /app/packages/app/.next ./packages/app/.next
-COPY --from=builder /app/packages/app/public ./packages/app/public
-COPY --from=builder /app/packages/app/package.json ./packages/app/package.json
-
-# 6) Switch into the app’s folder for runtime
-WORKDIR /app/packages/app
-
-# 7) Expose port 3000 (Next.js default)
+# 4) Expose Next.js’s default port
 EXPOSE 3000
 
-# 8) Start the Next.js server
+# 5) Start the Next.js server
 CMD ["npm", "start"]
