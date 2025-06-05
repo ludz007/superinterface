@@ -1,55 +1,59 @@
 ############################################
-# Stage 1: Builder – install dependencies & build all packages
+# Stage 1: “builder” — install & compile monorepo + Next.js example
 ############################################
 FROM node:18-alpine AS builder
 
-# 1) Set the working directory to the repo root
+# 1) Work from /app in the build container
 WORKDIR /app
 
-# 2) Copy only the files needed to install dependencies
-#    (including turbo.json so npm knows about workspaces)
+# 2) Copy only the root package files & turbo.json
+#    so that npm can install all workspaces without having to copy everything first.
 COPY package.json package-lock.json turbo.json ./
 
-# 3) Install all dependencies (including devDependencies for each workspace)
-#    This will populate node_modules for packages/react, packages/root-element, etc.
+# 3) Install _all_ dependencies (including devDependencies).
+#    This populates node_modules for every workspace under /packages.
 RUN npm install
 
-# 4) Make tsup available globally, since some workspaces rely on it
-RUN npm install -g tsup
-
-# 5) Copy the rest of the repo to /app
+# 4) Copy the rest of your monorepo into the container:
+#    • packages/ (react, javascript, root-element, etc.)
+#    • examples/next (the Next.js app)
 COPY . .
 
-# 6) Run the “build” script from the root (Turbo will build every workspace,
-#    including @superinterface/react and @superinterface/root-element)
+# 5) Build every workspace via Turbo (this will compile @superinterface/react, @superinterface/root-element, etc.)
+RUN npm run build
+
+# 6) Switch into the Next.js example folder
+WORKDIR /app/examples/next
+
+# 7) Install ONLY the example’s dependencies (this reads examples/next/package.json & examples/next/package-lock.json)
+RUN npm install
+
+# 8) Build the Next.js example. 
+#    This creates examples/next/.next and prepares it for production.
 RUN npm run build
 
 
 ############################################
-# Stage 2: Runner – copy only the production output & start Next.js
+# Stage 2: “runner” — copy over only what the Next.js app needs at runtime
 ############################################
 FROM node:18-alpine AS runner
 
-# 1) Create a fresh working directory
+# 1) Create a fresh working directory for the final image
 WORKDIR /app
 
-# 2) Copy only what’s needed for the Next.js app from the builder:
-#    • node_modules for the app (Turbo places dependencies into packages/app/node_modules)
-#    • the built .next/ folder for the app
-#    • the public/ folder for the app
-#    • the app’s package.json so “npm start” works
-COPY --from=builder /app/packages/app/node_modules ./packages/app/node_modules
-COPY --from=builder /app/packages/app/.next ./packages/app/.next
-COPY --from=builder /app/packages/app/public ./packages/app/public
-COPY --from=builder /app/packages/app/package.json ./packages/app/package.json
+# 2) Copy the example’s production node_modules, the built .next folder, and public assets from “builder”
+COPY --from=builder /app/examples/next/node_modules ./examples/next/node_modules
+COPY --from=builder /app/examples/next/.next     ./examples/next/.next
+COPY --from=builder /app/examples/next/public    ./examples/next/public
+COPY --from=builder /app/examples/next/package.json ./examples/next/package.json
 
-# 3) Switch into the app’s folder for runtime
-WORKDIR /app/packages/app
+# 3) Switch into the Next.js example’s folder
+WORKDIR /app/examples/next
 
-# 4) Ensure we’re in production mode
+# 4) Ensure we run in production mode
 ENV NODE_ENV=production
 
-# 5) Expose port 3000 (Next.js default)
+# 5) Expose Next.js’s default port
 EXPOSE 3000
 
 # 6) Start the Next.js server
