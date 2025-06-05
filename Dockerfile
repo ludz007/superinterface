@@ -6,8 +6,8 @@ FROM node:18-alpine AS builder
 # 1) Set working directory
 WORKDIR /app
 
-# 2) Copy package.json and pnpm lockfile
-COPY package.json pnpm-lock.yaml ./
+# 2) Copy only package.json (no lockfile, since it doesn’t exist)
+COPY package.json ./
 
 # 3) Install pnpm and dependencies
 RUN npm install -g pnpm@latest
@@ -34,7 +34,7 @@ WORKDIR /app
 
 # 2) Copy only the built assets and node_modules from the builder
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./​.next
+COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/package.json ./package.json
 
